@@ -1,52 +1,55 @@
 import express from "express";
 import cors from "cors";
 import path from "path";
-import url, { fileURLToPath } from "url";
+import { fileURLToPath } from "url";
 import ImageKit from "imagekit";
 import mongoose from "mongoose";
 import Chat from "./models/chat.js";
 import UserChats from "./models/userChats.js";
-import { clerkClient } from '@clerk/clerk-sdk-node';
-import dotenv from 'dotenv';
-import 'dotenv/config' // To read CLERK_SECRET_KEY and CLERK_PUBLISHABLE_KEY
-import { ClerkExpressRequireAuth } from '@clerk/clerk-sdk-node'
+import dotenv from "dotenv";
+import { ClerkExpressRequireAuth } from "@clerk/clerk-sdk-node";
 
+// Load environment variables
+dotenv.config();
 
-const port = process.env.PORT || 3000
-const app = express()
+const app = express();
+const port = process.env.PORT || 3000;
 
-// Use the strict middleware that raises an error when unauthenticated
+// Enable CORS
+app.use(
+  cors({
+    origin: "http://localhost:5173",
+    credentials: true, // Enable credentials if needed (for cookies, etc.)
+  })
+);
 
-app.use((err, req, res, next) => {
-  console.error(err.stack)
-  res.status(401).send('Unauthenticated!')
-});
+// Middleware for JSON parsing
+app.use(express.json());
 
+// Serve static files and define __dirname
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-app.use(cors({
-  origin: 'https://asknova.netlify.app',  
-  credentials: true                 // Enable credentials if needed (for cookies, etc.)
-}));
-
-app.use(express.json());
-
+// MongoDB connection
 const connect = async () => {
   try {
-    await mongoose.connect("mongodb+srv://sahil21ug4021:csrZypHauf2lyFkg@cluster0.j1uir.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0");
+    await mongoose.connect(
+      process.env.MONGO_URI || "your_mongodb_connection_string_here"
+    );
     console.log("Connected to MongoDB");
   } catch (err) {
-    console.log(err);
+    console.error("Error connecting to MongoDB:", err);
   }
 };
 
+// Configure ImageKit
 const imagekit = new ImageKit({
-  urlEndpoint:"https://ik.imagekit.io/Sahil",
+  urlEndpoint: "https://ik.imagekit.io/Sahil",
   publicKey: "public_xKP1KE+ssW/OS9CTeVtaA6N0Dyc=",
   privateKey: "private_0HZ2yFxhlIhBVXHyIMSF8/0vBpk=",
 });
 
+// Routes
 app.get("/api/upload", (req, res) => {
   const result = imagekit.getAuthenticationParameters();
   res.send(result);
@@ -57,34 +60,24 @@ app.post("/api/chats", ClerkExpressRequireAuth(), async (req, res) => {
   const { text } = req.body;
 
   try {
-    // CREATE A NEW CHAT
     const newChat = new Chat({
-      userId: userId,
+      userId,
       history: [{ role: "user", parts: [{ text }] }],
     });
 
     const savedChat = await newChat.save();
 
-    // CHECK IF THE USERCHATS EXISTS
-    const userChats = await UserChats.find({ userId: userId });
+    const userChats = await UserChats.findOne({ userId });
 
-    // IF DOESN'T EXIST CREATE A NEW ONE AND ADD THE CHAT IN THE CHATS ARRAY
-    if (!userChats.length) {
+    if (!userChats) {
       const newUserChats = new UserChats({
-        userId: userId,
-        chats: [
-          {
-            _id: savedChat._id,
-            title: text.substring(0, 40),
-          },
-        ],
+        userId,
+        chats: [{ _id: savedChat._id, title: text.substring(0, 40) }],
       });
-
       await newUserChats.save();
     } else {
-      // IF EXISTS, PUSH THE CHAT TO THE EXISTING ARRAY
       await UserChats.updateOne(
-        { userId: userId },
+        { userId },
         {
           $push: {
             chats: {
@@ -94,11 +87,11 @@ app.post("/api/chats", ClerkExpressRequireAuth(), async (req, res) => {
           },
         }
       );
-
-      res.status(201).send(newChat._id);
     }
+
+    res.status(201).send(savedChat._id);
   } catch (err) {
-    console.log(err);
+    console.error("Error creating chat:", err);
     res.status(500).send("Error creating chat!");
   }
 });
@@ -107,39 +100,33 @@ app.get("/api/userchats", ClerkExpressRequireAuth(), async (req, res) => {
   const userId = req.auth.userId;
 
   try {
-    // Fetch user chats from the database
-    const userChats = await UserChats.find({ userId });
+    const userChats = await UserChats.findOne({ userId });
 
-    // Check if there are results and if the first result has 'chats'
-    if (!userChats || userChats.length === 0 || !userChats[0].chats) {
+    if (!userChats || !userChats.chats) {
       return res.status(404).send("No chats found for the user.");
     }
 
-    // Send the chats if they exist
-    res.status(200).send(userChats[0].chats);
+    res.status(200).send(userChats.chats);
   } catch (err) {
-    console.log(err);
+    console.error("Error fetching user chats:", err);
     res.status(500).send("Error fetching user chats!");
   }
 });
-
 
 app.get("/api/chats/:id", ClerkExpressRequireAuth(), async (req, res) => {
   const userId = req.auth.userId;
 
   try {
     const chat = await Chat.findOne({ _id: req.params.id, userId });
-
     res.status(200).send(chat);
   } catch (err) {
-    console.log(err);
+    console.error("Error fetching chat:", err);
     res.status(500).send("Error fetching chat!");
   }
 });
 
 app.put("/api/chats/:id", ClerkExpressRequireAuth(), async (req, res) => {
   const userId = req.auth.userId;
-
   const { question, answer, img } = req.body;
 
   const newItems = [
@@ -162,24 +149,27 @@ app.put("/api/chats/:id", ClerkExpressRequireAuth(), async (req, res) => {
     );
     res.status(200).send(updatedChat);
   } catch (err) {
-    console.log(err);
+    console.error("Error adding conversation:", err);
     res.status(500).send("Error adding conversation!");
   }
 });
 
+// Serve frontend (production)
+if (process.env.NODE_ENV === "production") {
+  app.use(express.static(path.join(__dirname, "../client/dist")));
+  app.get("*", (req, res) => {
+    res.sendFile(path.join(__dirname, "../client/dist", "index.html"));
+  });
+}
+
+// Error handling middleware
 app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(401).send("Unauthenticated!");
+  console.error("Error:", err.stack);
+  res.status(500).send("An error occurred!");
 });
 
-// PRODUCTION
-app.use(express.static(path.join(__dirname, "../client/dist")));
-
-app.get("*", (req, res) => {
-  res.sendFile(path.join(__dirname, "../client/dist", "index.html"));
-});
-
+// Start the server
 app.listen(port, () => {
   connect();
-  console.log("Server running on 3000");
+  console.log(`Server running on http://localhost:${port}`);
 });
