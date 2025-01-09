@@ -9,13 +9,11 @@ import UserChats from "./models/userChats.js";
 import dotenv from "dotenv";
 import { ClerkExpressRequireAuth } from "@clerk/clerk-sdk-node";
 
-// Load environment variables
 dotenv.config();
 
 const app = express();
 const port = process.env.PORT || 3000;
 
-// Enable CORS
 app.use(
   cors({
     origin: "http://localhost:5173",
@@ -23,14 +21,13 @@ app.use(
   })
 );
 
-// Middleware for JSON parsing
 app.use(express.json());
 
-// Serve static files and define __dirname
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// MongoDB connection
+
 const connect = async () => {
   try {
     await mongoose.connect(
@@ -42,14 +39,14 @@ const connect = async () => {
   }
 };
 
-// Configure ImageKit
+
 const imagekit = new ImageKit({
   urlEndpoint: "https://ik.imagekit.io/Sahil",
   publicKey: "public_xKP1KE+ssW/OS9CTeVtaA6N0Dyc=",
   privateKey: "private_0HZ2yFxhlIhBVXHyIMSF8/0vBpk=",
 });
 
-// Routes
+
 app.get("/api/upload", (req, res) => {
   const result = imagekit.getAuthenticationParameters();
   res.send(result);
@@ -162,13 +159,11 @@ if (process.env.NODE_ENV === "production") {
   });
 }
 
-// Error handling middleware
 app.use((err, req, res, next) => {
   console.error("Error:", err.stack);
   res.status(500).send("An error occurred!");
 });
 
-// Start the server
 app.listen(port, () => {
   connect();
   console.log(`Server running on http://localhost:${port}`);
